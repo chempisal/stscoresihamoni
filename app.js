@@ -875,16 +875,119 @@ function renderClassesAndSubjects() {
         const classNames = db.classes;
         pillsContainer.innerHTML = classNames.map(cName => {
             const count = classStats[cName] || 0;
+            const actionButtons = currentRole === "admin"
+                ? `
+                    <div class="action-btn-group" style="margin-left: 12px; flex-shrink: 0;">
+                        <button class="icon-action-btn edit" onclick="editClass('${cName}')" title="កែប្រែថ្នាក់">
+                            <i data-lucide="edit-2"></i>
+                        </button>
+                        <button class="icon-action-btn delete" onclick="deleteClass('${cName}')" title="លុបថ្នាក់">
+                            <i data-lucide="trash-2"></i>
+                        </button>
+                    </div>
+                `
+                : "";
+
             return `
-                <div class="class-pill">
-                    <span class="class-pill-name">ថ្នាក់រៀន ${cName}</span>
-                    <span class="class-pill-meta">${count} នាក់ (សិស្សរដ្ឋសរុប)</span>
+                <div class="class-pill" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+                        <span class="class-pill-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">ថ្នាក់រៀន ${cName}</span>
+                        <span class="class-pill-meta">${count} នាក់ (សិស្សរដ្ឋសរុប)</span>
+                    </div>
+                    ${actionButtons}
                 </div>
             `;
         }).join("");
     }
 
     renderTimetableGrid();
+}
+
+function editClass(oldClassName) {
+    if (currentRole !== "admin") return;
+    const newClassName = prompt(`បញ្ចូលឈ្មោះថ្នាក់រៀនថ្មីសម្រាប់ថ្នាក់ "${oldClassName}"៖`, oldClassName);
+    if (!newClassName) return;
+    const trimmed = newClassName.trim();
+    if (trimmed === "" || trimmed === oldClassName) return;
+
+    // Check if the new class name already exists
+    if (db.classes.includes(trimmed)) {
+        alert("ឈ្មោះថ្នាក់រៀននេះមានរួចមកហើយ!");
+        return;
+    }
+
+    if (confirm(`តើអ្នកពិតជាចង់ប្តូរឈ្មោះថ្នាក់ពី "${oldClassName}" ទៅ "${trimmed}" មែនទេ? សិស្ស និងកាលវិភាគទាំងអស់នឹងត្រូវកែសម្រួលដោយស្វ័យប្រវត្ត។`)) {
+        // 1. Update in db.classes array
+        const idx = db.classes.indexOf(oldClassName);
+        if (idx !== -1) {
+            db.classes[idx] = trimmed;
+        }
+
+        // 2. Update students assigned to this class
+        db.students.forEach(s => {
+            if (s.class === oldClassName) {
+                s.class = trimmed;
+            }
+        });
+
+        // 3. Rename timetable entry
+        if (db.timetables[oldClassName]) {
+            db.timetables[trimmed] = db.timetables[oldClassName];
+            delete db.timetables[oldClassName];
+        }
+
+        // 4. Rename report card settings
+        if (db.reportCardSettings && db.reportCardSettings[oldClassName]) {
+            db.reportCardSettings[trimmed] = db.reportCardSettings[oldClassName];
+            delete db.reportCardSettings[oldClassName];
+        }
+
+        db.addLog(`បានប្តូរឈ្មោះថ្នាក់រៀនពី៖ ${oldClassName} ទៅ៖ ${trimmed}`);
+        db.save();
+        
+        // Refresh UI
+        renderClassesAndSubjects();
+        populateClassSelectors();
+    }
+}
+
+function deleteClass(cName) {
+    if (currentRole !== "admin") return;
+
+    const countStudents = db.students.filter(s => s.class === cName).length;
+    let confirmMsg = `តើអ្នកពិតជាចង់លុបថ្នាក់រៀន "${cName}" ចេញពីប្រព័ន្ធមែនទេ?`;
+    if (countStudents > 0) {
+        confirmMsg += `\n\nព្រមាន៖ ថ្នាក់នេះមានសិស្សចំនួន ${countStudents} នាក់។ សិស្សទាំងអស់នឹងត្រូវដកចេញពីថ្នាក់រៀននេះ។`;
+    }
+
+    if (confirm(confirmMsg)) {
+        // 1. Remove from db.classes array
+        db.classes = db.classes.filter(c => c !== cName);
+
+        // 2. Clear student classes
+        db.students.forEach(s => {
+            if (s.class === cName) {
+                s.class = "";
+            }
+        });
+
+        // 3. Delete timetable entry
+        if (db.timetables[cName]) {
+            delete db.timetables[cName];
+        }
+
+        // 4. Delete report card settings
+        if (db.reportCardSettings && db.reportCardSettings[cName]) {
+            delete db.reportCardSettings[cName];
+        }
+
+        db.addLog(`បានលុបថ្នាក់រៀន៖ ${cName}`);
+        db.save();
+
+        // Refresh UI
+        renderClassesAndSubjects();
+        populateClassSelectors();
+    }
 }
 
 function renderTimetableGrid() {
